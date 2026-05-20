@@ -39,9 +39,16 @@ model = OmniVoice.from_pretrained(
 )
 print("Model loaded successfully!")
 
-# ── Output folder ─────────────────────────────────────────────────────────────
-OUTPUT_FOLDER = "/content/drive/MyDrive/OmniVoice-Output"
+# ── Output folder — reads from notebook config, fallback to local ─────────────
+import json as _json
+_config_path = os.path.join(os.path.dirname(__file__), "output_config.json")
+if os.path.exists(_config_path):
+    with open(_config_path) as _f:
+        OUTPUT_FOLDER = _json.load(_f).get("output_folder", "/content/omnivoice-output")
+else:
+    OUTPUT_FOLDER = "/content/omnivoice-output"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+print(f"💾 Output folder: {OUTPUT_FOLDER}")
 
 # ── Languages ─────────────────────────────────────────────────────────────────
 LANGUAGES = [
@@ -499,7 +506,7 @@ theme = gr.themes.Base(
     color_accent_soft="rgba(34,211,238,0.1)",
 )
 
-with gr.Blocks(title="OmniVoice — Voice Cloning & Design") as demo:
+with gr.Blocks(title="OmniVoice — Voice Cloning & Design", theme=theme, css=css) as demo:
 
     # ── Header ──────────────────────────────────────────────────────────────
     gr.HTML("""
@@ -713,6 +720,4 @@ Apni marzi ki voice banao bina kisi reference audio ke!
 demo.launch(
     share=True,
     show_error=True,
-    theme=theme,
-    css=css,
 )
