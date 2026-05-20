@@ -111,11 +111,16 @@ def voice_clone(text: str, ref_audio, ref_text: str, lang_label: str,
     lang = _lang_code(lang_label)
     ref_text_val = ref_text.strip() if ref_text.strip() else None  # None → auto ASR
 
-    cfg_obj = OmniVoiceGenerationConfig(
-        speed=float(speed),
-        num_steps=int(steps),
-        guidance_scale=float(cfg),
-    )
+    # Build config safely — handle different omnivoice versions
+    try:
+        cfg_obj = OmniVoiceGenerationConfig(
+            speed=float(speed),
+            num_steps=int(steps),
+            guidance_scale=float(cfg),
+        )
+        gen_kwargs = {"generation_config": cfg_obj}
+    except TypeError:
+        gen_kwargs = {}
 
     t0 = time.time()
     try:
@@ -124,7 +129,7 @@ def voice_clone(text: str, ref_audio, ref_text: str, lang_label: str,
             ref_audio=ref_audio,
             ref_text=ref_text_val,
             lang=lang,
-            generation_config=cfg_obj,
+            **gen_kwargs,
         )
         if not result:
             return None, "❌ Audio generate nahi hua."
@@ -153,11 +158,17 @@ def voice_design(text: str, gender: str, age: str, pitch: str,
     instruct = ", ".join(parts) if parts else "female, young adult, moderate pitch"
 
     lang    = _lang_code(lang_label)
-    cfg_obj = OmniVoiceGenerationConfig(
-        speed=float(speed),
-        num_steps=int(steps),
-        guidance_scale=float(cfg),
-    )
+
+    # Build config safely — handle different omnivoice versions
+    try:
+        cfg_obj = OmniVoiceGenerationConfig(
+            speed=float(speed),
+            num_steps=int(steps),
+            guidance_scale=float(cfg),
+        )
+        gen_kwargs = {"generation_config": cfg_obj}
+    except TypeError:
+        gen_kwargs = {}
 
     t0 = time.time()
     try:
@@ -165,7 +176,7 @@ def voice_design(text: str, gender: str, age: str, pitch: str,
             text=text,
             instruct=instruct,
             lang=lang,
-            generation_config=cfg_obj,
+            **gen_kwargs,
         )
         if not result:
             return None, "❌ Audio generate nahi hua."
