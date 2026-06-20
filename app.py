@@ -532,9 +532,8 @@ with gr.Blocks(title="OmniVoice — Voice Cloning & Design", theme=theme, css=cs
             <span class='badge-pill badge-pink'>💾 Auto Drive Save</span>
         </div>
         <div>
-            <a href='https://github.com/k2-fsa/OmniVoice' target='_blank' class='social-btn'>⭐ OmniVoice</a>
-            <a href='https://huggingface.co/k2-fsa/OmniVoice' target='_blank' class='social-btn'>🤗 HuggingFace</a>
-            <a href='https://github.com/iamytmanager/omnivoice-colab' target='_blank' class='social-btn'>🐙 My Repo</a>
+            <a href='https://www.facebook.com/iamyourshahzaib' target='_blank' class='social-btn'>📘 Facebook</a>
+            <a href='https://wa.me/923363854956' target='_blank' class='social-btn'>💬 WhatsApp</a>
         </div>
     </div>
     """)
@@ -720,11 +719,8 @@ Apni marzi ki voice banao bina kisi reference audio ke!
     # ── Footer ───────────────────────────────────────────────────────────────
     gr.HTML("""
     <div class='footer-bar'>
-        <p>Powered by <a href='https://github.com/k2-fsa/OmniVoice' target='_blank'>OmniVoice</a>
-           by k2-fsa • Apache 2.0 License</p>
-        <p>Dark GUI inspired by Kokoro TTS •
-           <a href='https://github.com/iamytmanager/omnivoice-colab' target='_blank'>My Repo</a>
-           • All rights reserved © 2025</p>
+        <p><a href='https://www.facebook.com/iamyourshahzaib' target='_blank'>📘 Facebook</a>
+           • <a href='https://wa.me/923363854956' target='_blank'>💬 WhatsApp</a></p>
     </div>
     """)
 
