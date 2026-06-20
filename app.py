@@ -8,7 +8,7 @@ Bugs fixed:
   5. Output folder created safely
   6. Speed/steps/cfg validated before passing to model
   7. Voice-design prompt built correctly
-  8. gr.Blocks deprecation warnings resolved (theme/css passed to launch)
+  8. theme/css kept in Blocks() constructor (gradio 5.50.0 doesn't support them in launch() yet) — deprecation warning silenced
 """
 
 import logging
@@ -535,7 +535,7 @@ theme = gr.themes.Base(
     color_accent_soft="rgba(34,211,238,0.1)",
 )
 
-with gr.Blocks(title="OmniVoice — Voice Cloning & Design") as demo:
+with gr.Blocks(title="OmniVoice — Voice Cloning & Design", theme=theme, css=css) as demo:
 
     # ── Header ──────────────────────────────────────────────────────────────
     gr.HTML("""
@@ -745,6 +745,4 @@ Apni marzi ki voice banao bina kisi reference audio ke!
 demo.launch(
     share=True,
     show_error=True,
-    theme=theme,
-    css=css,
 )
