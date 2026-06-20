@@ -15,6 +15,34 @@ import logging
 import os
 import tempfile
 import time
+import json as _json
+import warnings
+
+# ── Quiet down noisy library warnings (Whisper decoder/logits-processor
+#    notices, HF Hub auth hints, etc.) — purely cosmetic, doesn't affect output
+warnings.filterwarnings("ignore")
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+
+# ── Config — read BEFORE importing omnivoice/torch so HF cache env vars
+#    take effect on the very first download call ────────────────────────────
+_config_path = os.path.join(os.path.dirname(__file__), "output_config.json")
+_cfg = {}
+if os.path.exists(_config_path):
+    with open(_config_path) as _f:
+        _cfg = _json.load(_f)
+
+OUTPUT_FOLDER = _cfg.get("output_folder", "/content/omnivoice-output")
+MODEL_CACHE_FOLDER = _cfg.get("model_cache_folder", "/content/omnivoice-model-cache")
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs(MODEL_CACHE_FOLDER, exist_ok=True)
+
+# Point HuggingFace cache to Drive (or local fallback) so the model
+# downloads only once and loads from there on every future run.
+os.environ["HF_HOME"] = MODEL_CACHE_FOLDER
+os.environ["HUGGINGFACE_HUB_CACHE"] = MODEL_CACHE_FOLDER
+os.environ["HF_HUB_CACHE"] = MODEL_CACHE_FOLDER
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 import gradio as gr
 import numpy as np
@@ -26,11 +54,11 @@ from omnivoice import OmniVoice, OmniVoiceGenerationConfig
 logging.basicConfig(level=logging.WARNING,
                     format="%(asctime)s %(name)s %(levelname)s: %(message)s")
 logging.getLogger("omnivoice").setLevel(logging.INFO)
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 CHECKPOINT = "k2-fsa/OmniVoice"
-print(f"Loading model from {CHECKPOINT} to cuda ...")
+print(f"📦 Model cache: {MODEL_CACHE_FOLDER}")
+print(f"Loading model from {CHECKPOINT} to cuda ... (pehli baar download hoga, agli baar cache se load hoga)")
 model = OmniVoice.from_pretrained(
     CHECKPOINT,
     device_map="cuda",
@@ -38,16 +66,6 @@ model = OmniVoice.from_pretrained(
     load_asr=True,
 )
 print("Model loaded successfully!")
-
-# ── Output folder — reads from notebook config, fallback to local ─────────────
-import json as _json
-_config_path = os.path.join(os.path.dirname(__file__), "output_config.json")
-if os.path.exists(_config_path):
-    with open(_config_path) as _f:
-        OUTPUT_FOLDER = _json.load(_f).get("output_folder", "/content/omnivoice-output")
-else:
-    OUTPUT_FOLDER = "/content/omnivoice-output"
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 print(f"💾 Output folder: {OUTPUT_FOLDER}")
 
 # ── Languages ─────────────────────────────────────────────────────────────────
@@ -517,7 +535,7 @@ theme = gr.themes.Base(
     color_accent_soft="rgba(34,211,238,0.1)",
 )
 
-with gr.Blocks(title="OmniVoice — Voice Cloning & Design", theme=theme, css=css) as demo:
+with gr.Blocks(title="OmniVoice — Voice Cloning & Design") as demo:
 
     # ── Header ──────────────────────────────────────────────────────────────
     gr.HTML("""
@@ -727,4 +745,6 @@ Apni marzi ki voice banao bina kisi reference audio ke!
 demo.launch(
     share=True,
     show_error=True,
+    theme=theme,
+    css=css,
 )
