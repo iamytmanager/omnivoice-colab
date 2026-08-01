@@ -408,20 +408,39 @@ button.secondary:hover {
     color: #FF6B35 !important;
 }
 
-/* ── Audio component ─────────────────────────────────────────────────────── */
-.audio-container, .audio-wrap, [data-testid="audio"] {
-    background: #1A1A1A !important;
+/* ── Audio component — force dark everywhere ─────────────────────────────── */
+.audio-container, .audio-wrap, [data-testid="audio"],
+[data-testid="audio"] > div, [data-testid="audio"] > div > div,
+.waveform-wrap, .waveform-container,
+div[class*="waveform"], div[class*="audio"],
+.component-wrapper {
+    background: #141414 !important;
+    background-color: #141414 !important;
     border: 1px solid #2E2E2E !important;
     border-radius: 12px !important;
-    padding: 16px !important;
+    color: #F0F0F0 !important;
 }
+/* Inner waveform canvas dark karo */
+[data-testid="audio"] canvas,
+[data-testid="audio"] wave,
+[data-testid="audio"] wave canvas,
+.waveform-wrap canvas, .waveform-wrap wave,
+wave { background: #141414 !important; background-color: #141414 !important; }
+/* Audio player */
 .audio-container audio, audio {
     width: 100% !important;
     height: 36px !important;
     border-radius: 6px !important;
     accent-color: #FF6B35 !important;
+    background: #141414 !important;
 }
-.waveform-wrap { background: #111111 !important; border-radius: 8px !important; }
+.waveform-wrap { background: #141414 !important; border-radius: 8px !important; }
+/* Timestamps */
+[data-testid="audio"] span, [data-testid="audio"] p { color: #888888 !important; }
+/* Buttons inside audio */
+[data-testid="audio"] button { color: #FF6B35 !important; background: transparent !important; }
+/* Block wrappers */
+.block.padded { background: #141414 !important; }
 
 /* ── File upload zone ────────────────────────────────────────────────────── */
 .upload-btn, .wrap.svelte-r2cif8 {
@@ -487,6 +506,33 @@ button.secondary:hover {
     font-family: 'Courier New', monospace !important;
     font-size: 11px !important;
     color: #888888 !important;
+}
+
+/* ── Kill any remaining white in audio player ───────────────────────────── */
+* { scrollbar-color: #333 #111 !important; }
+.svelte-1oiin9d, .svelte-1oiin9d * { background: #141414 !important; }
+/* WaveSurfer white canvas override */
+canvas { background: #141414 !important; }
+/* Timer box that shows duration */
+.time, .duration, span.time, span.duration {
+    color: #FF6B35 !important;
+    background: transparent !important;
+}
+/* Any leftover white divs inside audio block */
+[data-testid="audio"] * { 
+    background-color: transparent !important; 
+}
+[data-testid="audio"] > div {
+    background-color: #141414 !important;
+}
+
+/* ── Button disabled state during generation ─────────────────────────────── */
+button.primary:disabled, button[variant="primary"]:disabled {
+    background: #3A2A1A !important;
+    box-shadow: none !important;
+    transform: none !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
 }
 
 /* ── Row layout ──────────────────────────────────────────────────────────── */
@@ -744,6 +790,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                 inputs=[vc_text, vc_ref_audio, vc_ref_transcript, vc_steps,
                         vc_speed, vc_remove_sil, vc_sil_thresh, vc_min_sil_ms, vc_auto_dl],
                 outputs=[vc_audio_out, vc_dl_trigger, vc_status],
+                concurrency_limit=1,
             )
 
         # ── TAB 2: Voice Design ───────────────────────────────────────────
@@ -822,10 +869,12 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                 inputs=[vd_text, vd_gender, vd_age, vd_emotion, vd_steps,
                         vd_speed, vd_remove_sil, vd_sil_thresh, vd_min_sil_ms, vd_auto_dl],
                 outputs=[vd_audio_out, vd_dl_trigger, vd_status],
+                concurrency_limit=1,
             )
 
 
 if __name__ == "__main__":
+    demo.queue(max_size=1)  # Page freeze prevent — queue enable karo
     demo.launch(
         share=True,
         show_error=True,
