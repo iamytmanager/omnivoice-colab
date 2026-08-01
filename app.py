@@ -753,9 +753,9 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         label="Generation steps",
                         minimum=10,
                         maximum=50,
-                        value=16,
+                        value=20,
                         step=2,
-                        info="10–16 = fast · 32–50 = best quality",
+                        info="10–16 = fast · 20–24 = best balance · 32–50 = best quality",
                     )
                     vc_speed = gr.Slider(
                         label="Speed",
@@ -834,9 +834,9 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         label="Generation steps",
                         minimum=10,
                         maximum=50,
-                        value=16,
+                        value=20,
                         step=2,
-                        info="10–16 = fast · 32–50 = best quality",
+                        info="10–16 = fast · 20–24 = best balance · 32–50 = best quality",
                     )
                     vd_speed = gr.Slider(
                         label="Speed",
