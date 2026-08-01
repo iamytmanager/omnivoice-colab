@@ -127,45 +127,44 @@ def generate_voice_clone(
     remove_sil: bool,
     sil_thresh_db: float,
     min_sil_ms: int,
+    auto_dl: bool,
 ):
     if not text.strip():
         raise gr.Error("❌ Text to Speak khali hai!")
     if ref_audio is None:
         raise gr.Error("❌ Reference audio upload karo!")
 
-    status_msg = "⏳ Voice generate ho rahi hai..."
-    yield None, status_msg
+    # Pehle audio clear karo taake purani wali na dikhe
+    status_msg = "⏳ Generating — purani audio clear ho rahi hai..."
+    yield None, "", status_msg
 
     try:
-        # Generate with OmniVoice
         timestamp = int(time.time())
         out_filename = f"omnivoice_{timestamp}.wav"
         out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        # OmniVoice correct API: model.generate() with ref_audio for cloning
-        # num_step (not num_steps), ref_text (not reference_transcript)
+        status_msg = "🔄 Voice generate ho rahi hai — please wait..."
+        yield None, "", status_msg
+
         generate_kwargs = dict(
             text=text,
             ref_audio=ref_audio,
-            num_step=steps,          # ← correct param name
+            num_step=steps,
             speed=speed_factor,
         )
         if ref_transcript and ref_transcript.strip():
             generate_kwargs['ref_text'] = ref_transcript.strip()
-        # if ref_text omitted, Whisper auto-transcribes
 
         audio_list = tts.generate(**generate_kwargs)
-        # Returns list of np.ndarray at 24000 Hz
         if not audio_list:
             raise gr.Error("❌ Audio generate nahi hui — model ne kuch return nahi kiya!")
         
         audio_np = audio_list[0]
         sf.write(out_path, audio_np, 24000)
 
-        # Silence removal
         if remove_sil:
             status_msg = "✂️ Silence remove ho rahi hai..."
-            yield None, status_msg
+            yield None, "", status_msg
             final_path = remove_silence(
                 out_path,
                 silence_thresh_db=sil_thresh_db,
@@ -174,9 +173,7 @@ def generate_voice_clone(
         else:
             final_path = out_path
 
-        # Audio already numpy array hai — seedha return karo (instant render)
         if final_path != out_path:
-            # silence removal ne naya file banaya — us se read karo
             audio_data, sr = sf.read(final_path)
             if audio_data.ndim > 1:
                 audio_data = audio_data.mean(axis=1)
@@ -184,8 +181,11 @@ def generate_voice_clone(
             audio_data = audio_np.astype(np.float32)
             sr = 24000
 
-        status_msg = f"✅ Done! Saved: {os.path.basename(final_path)}"
-        yield (sr, audio_data.astype(np.float32)), status_msg
+        saved_name = os.path.basename(final_path)
+        # auto_dl=True hone pe JS download trigger karein
+        dl_trigger = final_path if auto_dl else ""
+        status_msg = f"✅ Done! Saved: {saved_name}"
+        yield (sr, audio_data.astype(np.float32)), dl_trigger, status_msg
 
     except Exception as e:
         raise gr.Error(f"❌ Error: {str(e)}")
@@ -201,19 +201,22 @@ def generate_voice_design(
     remove_sil: bool,
     sil_thresh_db: float,
     min_sil_ms: int,
+    auto_dl: bool,
 ):
     if not text.strip():
         raise gr.Error("❌ Text to Speak khali hai!")
 
-    status_msg = "⏳ Voice design ho rahi hai..."
-    yield None, status_msg
+    status_msg = "⏳ Generating — purani audio clear ho rahi hai..."
+    yield None, "", status_msg
 
     try:
         timestamp = int(time.time())
         out_filename = f"omnivoice_design_{timestamp}.wav"
         out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        # Voice design: instruct string banao attributes se
+        status_msg = "🔄 Voice design ho rahi hai — please wait..."
+        yield None, "", status_msg
+
         instruct_parts = [gender.lower(), age.lower()]
         if emotion.lower() != "neutral":
             instruct_parts.append(emotion.lower())
@@ -222,7 +225,7 @@ def generate_voice_design(
         audio_list = tts.generate(
             text=text,
             instruct=instruct_str,
-            num_step=steps,          # ← correct param name
+            num_step=steps,
             speed=speed_factor,
         )
         if not audio_list:
@@ -233,7 +236,7 @@ def generate_voice_design(
 
         if remove_sil:
             status_msg = "✂️ Silence remove ho rahi hai..."
-            yield None, status_msg
+            yield None, "", status_msg
             final_path = remove_silence(
                 out_path,
                 silence_thresh_db=sil_thresh_db,
@@ -250,8 +253,10 @@ def generate_voice_design(
             audio_data = audio_np.astype(np.float32)
             sr = 24000
 
-        status_msg = f"✅ Done! Saved: {os.path.basename(final_path)}"
-        yield (sr, audio_data.astype(np.float32)), status_msg
+        saved_name = os.path.basename(final_path)
+        dl_trigger = final_path if auto_dl else ""
+        status_msg = f"✅ Done! Saved: {saved_name}"
+        yield (sr, audio_data.astype(np.float32)), dl_trigger, status_msg
 
     except Exception as e:
         raise gr.Error(f"❌ Error: {str(e)}")
@@ -261,13 +266,13 @@ def generate_voice_design(
 # GRADIO UI
 # ══════════════════════════════════════════════════════════════════════════════
 STUDIO_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Inter:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
 
 /* ── Base reset ─────────────────────────────────────────────────────────── */
 body, .gradio-container, .main, footer {
-    background: #080C12 !important;
+    background: #0D0D0D !important;
     font-family: 'Inter', 'Segoe UI', sans-serif !important;
-    color: #C8D6E8 !important;
+    color: #F0F0F0 !important;
 }
 footer { display: none !important; }
 .gradio-container { max-width: 100% !important; padding: 0 !important; }
@@ -277,30 +282,35 @@ footer { display: none !important; }
 
 /* ── Tab navigation ─────────────────────────────────────────────────────── */
 .tab-nav { 
-    background: #0C1220 !important;
-    border-bottom: 1px solid #1A2535 !important;
+    background: #141414 !important;
+    border-bottom: 2px solid #FF6B35 !important;
     padding: 10px 20px 0 !important;
-    gap: 2px !important;
+    gap: 4px !important;
 }
 .tab-nav button {
     background: transparent !important;
-    color: #4A6A8A !important;
+    color: #888888 !important;
     border: 1px solid transparent !important;
     border-bottom: none !important;
-    border-radius: 6px 6px 0 0 !important;
-    font-family: 'Inter', sans-serif !important;
+    border-radius: 8px 8px 0 0 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
     font-size: 13px !important;
-    font-weight: 500 !important;
-    padding: 8px 16px !important;
+    font-weight: 600 !important;
+    padding: 9px 20px !important;
     margin: 0 !important;
-    transition: all 0.15s !important;
+    transition: all 0.2s !important;
+    letter-spacing: 0.3px !important;
+}
+.tab-nav button:hover {
+    color: #FF6B35 !important;
+    background: rgba(255,107,53,0.06) !important;
 }
 .tab-nav button.selected {
-    background: #080C12 !important;
-    color: #4DA6FF !important;
-    border-color: #1A2535 !important;
-    border-bottom: 1px solid #080C12 !important;
-    margin-bottom: -1px !important;
+    background: #0D0D0D !important;
+    color: #FF6B35 !important;
+    border-color: #333 !important;
+    border-bottom: 2px solid #0D0D0D !important;
+    margin-bottom: -2px !important;
 }
 
 /* ── Panels & forms ─────────────────────────────────────────────────────── */
@@ -308,129 +318,149 @@ footer { display: none !important; }
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    gap: 12px !important;
+    gap: 14px !important;
 }
 
 /* ── Labels ──────────────────────────────────────────────────────────────── */
 label span, .label-wrap span {
-    font-size: 10px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.8px !important;
+    font-size: 10.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
     text-transform: uppercase !important;
-    color: #2E5080 !important;
-    font-family: 'Inter', sans-serif !important;
+    color: #FF6B35 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
 }
 
 /* ── Inputs & textareas ──────────────────────────────────────────────────── */
 textarea, input[type='text'], input[type='number'] {
-    background: #0E1520 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 8px !important;
-    color: #B8CCDE !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 10px !important;
+    color: #F0F0F0 !important;
     font-family: 'Inter', sans-serif !important;
-    font-size: 12.5px !important;
-    line-height: 1.7 !important;
-    padding: 10px 12px !important;
-    transition: border-color 0.15s !important;
+    font-size: 13px !important;
+    line-height: 1.75 !important;
+    padding: 12px 14px !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 textarea:focus, input:focus {
-    border-color: #2A5FA0 !important;
+    border-color: #FF6B35 !important;
     outline: none !important;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.1) !important;
+    box-shadow: 0 0 0 3px rgba(255,107,53,0.15) !important;
+}
+textarea::placeholder, input::placeholder {
+    color: #555 !important;
 }
 
 /* ── Sliders ─────────────────────────────────────────────────────────────── */
-input[type='range'] { accent-color: #3B82F6 !important; }
-.wrap.svelte-1cl284s { color: #3B82F6 !important; font-weight: 600 !important; }
+input[type='range'] { accent-color: #FF6B35 !important; }
+.wrap.svelte-1cl284s { color: #FF6B35 !important; font-weight: 700 !important; }
 
 /* ── Dropdowns / selects ─────────────────────────────────────────────────── */
 .wrap-inner, select, .multiselect {
-    background: #0E1520 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 8px !important;
-    color: #B8CCDE !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 10px !important;
+    color: #F0F0F0 !important;
 }
 
 /* ── Checkboxes ──────────────────────────────────────────────────────────── */
-input[type='checkbox'] { accent-color: #3B82F6 !important; }
+input[type='checkbox'] { accent-color: #FF6B35 !important; }
 .checkbox-wrap label { 
-    color: #7AAAD8 !important;
-    font-size: 12px !important;
+    color: #CCCCCC !important;
+    font-size: 12.5px !important;
     font-weight: 500 !important;
     text-transform: none !important;
     letter-spacing: 0 !important;
 }
 
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
+/* ── Primary Button — orange gradient, glowing ──────────────────────────── */
 button.primary, .gr-button.primary, button[variant='primary'] {
-    background: #1A4A8A !important;
-    border: 1px solid #2A5FA0 !important;
-    border-radius: 8px !important;
-    color: #E8F4FF !important;
+    background: linear-gradient(135deg, #FF6B35 0%, #FF4500 100%) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    color: #FFFFFF !important;
     font-family: 'Space Grotesk', sans-serif !important;
-    font-size: 14px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.2px !important;
-    padding: 12px 20px !important;
-    transition: background 0.15s !important;
+    font-size: 14.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.4px !important;
+    padding: 14px 24px !important;
+    transition: all 0.2s !important;
+    box-shadow: 0 4px 20px rgba(255,107,53,0.35) !important;
+    text-transform: uppercase !important;
 }
-button.primary:hover { background: #2050A0 !important; }
+button.primary:hover {
+    background: linear-gradient(135deg, #FF7F50 0%, #FF5500 100%) !important;
+    box-shadow: 0 6px 28px rgba(255,107,53,0.5) !important;
+    transform: translateY(-1px) !important;
+}
 button.secondary, .gr-button.secondary {
-    background: #0A1018 !important;
-    border: 1px solid #1A2535 !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
     border-radius: 8px !important;
-    color: #4A6A8A !important;
+    color: #AAAAAA !important;
     font-size: 12px !important;
     padding: 8px 14px !important;
+    transition: all 0.2s !important;
+}
+button.secondary:hover {
+    border-color: #FF6B35 !important;
+    color: #FF6B35 !important;
 }
 
 /* ── Audio component ─────────────────────────────────────────────────────── */
 .audio-container, .audio-wrap, [data-testid="audio"] {
-    background: #0A1018 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 10px !important;
-    padding: 14px !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 12px !important;
+    padding: 16px !important;
 }
 .audio-container audio, audio {
     width: 100% !important;
     height: 36px !important;
     border-radius: 6px !important;
-    accent-color: #3B82F6 !important;
+    accent-color: #FF6B35 !important;
 }
-/* Remove default waveform, show clean player */
-.waveform-wrap { background: #0C1525 !important; border-radius: 6px !important; }
+.waveform-wrap { background: #111111 !important; border-radius: 8px !important; }
 
 /* ── File upload zone ────────────────────────────────────────────────────── */
 .upload-btn, .wrap.svelte-r2cif8 {
-    background: #0A1018 !important;
-    border: 1px dashed #1E3550 !important;
-    border-radius: 8px !important;
-    color: #4A6A8A !important;
+    background: #1A1A1A !important;
+    border: 2px dashed #333333 !important;
+    border-radius: 10px !important;
+    color: #666666 !important;
+    transition: all 0.2s !important;
 }
-.upload-btn:hover { border-color: #3B82F6 !important; color: #4DA6FF !important; }
+.upload-btn:hover {
+    border-color: #FF6B35 !important;
+    color: #FF6B35 !important;
+    background: rgba(255,107,53,0.05) !important;
+}
 
 /* ── Accordion ───────────────────────────────────────────────────────────── */
 .accordion {
-    background: #0A1018 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 8px !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 10px !important;
 }
 .accordion-header {
-    color: #4A6A8A !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
-    padding: 10px 14px !important;
+    color: #AAAAAA !important;
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    padding: 10px 16px !important;
 }
 
 /* ── Status / HTML boxes ─────────────────────────────────────────────────── */
 #status-box {
-    background: #0A1018 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 8px !important;
-    padding: 10px 14px !important;
-    color: #3B82F6 !important;
-    font-size: 12px !important;
-    min-height: 36px !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-left: 3px solid #FF6B35 !important;
+    border-radius: 10px !important;
+    padding: 12px 16px !important;
+    color: #FF6B35 !important;
+    font-size: 12.5px !important;
+    font-weight: 500 !important;
+    min-height: 40px !important;
     display: flex !important;
     align-items: center !important;
     gap: 8px !important;
@@ -438,43 +468,56 @@ button.secondary, .gr-button.secondary {
 
 /* ── Tip box ─────────────────────────────────────────────────────────────── */
 .tip-box {
-    background: #08100E !important;
-    border: 1px solid #0E2A22 !important;
-    border-left: 3px solid #0F6E56 !important;
-    border-radius: 0 8px 8px 0 !important;
-    padding: 10px 12px !important;
-    font-size: 11px !important;
-    color: #3A6A58 !important;
-    line-height: 1.8 !important;
+    background: #141414 !important;
+    border: 1px solid #1F2E1A !important;
+    border-left: 3px solid #22C55E !important;
+    border-radius: 0 10px 10px 0 !important;
+    padding: 12px 14px !important;
+    font-size: 11.5px !important;
+    color: #86EFAC !important;
+    line-height: 2 !important;
 }
 
 /* ── Save path box ───────────────────────────────────────────────────────── */
 .save-path {
-    background: #0A1018 !important;
-    border: 1px solid #1A2535 !important;
-    border-radius: 6px !important;
-    padding: 7px 12px !important;
+    background: #141414 !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
     font-family: 'Courier New', monospace !important;
     font-size: 11px !important;
-    color: #2E5080 !important;
+    color: #888888 !important;
 }
 
 /* ── Row layout ──────────────────────────────────────────────────────────── */
-.row { gap: 16px !important; }
+.row { gap: 18px !important; }
 
-/* ── Waveform animation bars (in header HTML) ────────────────────────────── */
+/* ── Waveform animation bars ─────────────────────────────────────────────── */
 @keyframes ovWave {
-    0%, 100% { transform: scaleY(1); opacity: 0.5; }
-    50% { transform: scaleY(1.7); opacity: 1; }
+    0%, 100% { transform: scaleY(0.6); opacity: 0.6; }
+    50% { transform: scaleY(1.4); opacity: 1; }
 }
 .ov-bar {
     display: inline-block;
     width: 3px;
-    background: #2A5F9E;
+    background: #FF6B35;
     border-radius: 2px;
     margin: 0 1px;
     vertical-align: middle;
-    animation: ovWave 1.4s ease-in-out infinite;
+    animation: ovWave 1.2s ease-in-out infinite;
+}
+
+/* ── Info text / hints ───────────────────────────────────────────────────── */
+.info-text, .gr-form .info {
+    color: #666 !important;
+    font-size: 11px !important;
+}
+
+/* ── Number input in sliders ─────────────────────────────────────────────── */
+.wrap.svelte-1cl284s input {
+    color: #FF6B35 !important;
+    background: #1A1A1A !important;
+    border-color: #333 !important;
 }
 """
 
@@ -507,53 +550,66 @@ def silence_controls():
 
 HEADER_HTML = """
 <div style="
-    background:#0C1220;
-    border-bottom:1px solid #1A2535;
-    padding:14px 20px;
+    background:linear-gradient(90deg,#141414 0%,#1A1208 100%);
+    border-bottom:2px solid #FF6B35;
+    padding:14px 24px;
     display:flex;
     align-items:center;
     justify-content:space-between;
     margin:-8px -8px 0 -8px;
 ">
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div style="display:flex;align-items:center;gap:12px;">
         <div style="
-            width:36px;height:36px;
-            background:#0E1E32;
-            border:1px solid #2A4A6F;
-            border-radius:8px;
+            width:40px;height:40px;
+            background:linear-gradient(135deg,#FF6B35,#FF4500);
+            border-radius:10px;
             display:flex;align-items:center;justify-content:center;
+            box-shadow:0 4px 16px rgba(255,107,53,0.4);
         ">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M2 13 Q5 5 9 9 Q13 13 16 5" stroke="#4DA6FF" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-                <circle cx="9" cy="9" r="2" fill="#3B82F6"/>
+            <svg width="20" height="20" viewBox="0 0 18 18" fill="none">
+                <path d="M2 13 Q5 5 9 9 Q13 13 16 5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"/>
+                <circle cx="9" cy="9" r="2.2" fill="#FFFFFF"/>
             </svg>
         </div>
         <div>
-            <div style="font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:600;color:#E8F2FF;letter-spacing:-0.3px;">OmniVoice</div>
-            <div style="font-size:11px;color:#2E5080;margin-top:1px;">Voice Cloning & Design Studio</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:19px;font-weight:700;color:#FFFFFF;letter-spacing:-0.5px;">OmniVoice</div>
+            <div style="font-size:11px;color:#FF6B35;margin-top:1px;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;">Voice Cloning & Design Studio</div>
         </div>
     </div>
-    <div style="display:flex;align-items:center;gap:3px;height:28px;">
-        <span class="ov-bar" style="height:7px;animation-delay:0s;"></span>
-        <span class="ov-bar" style="height:15px;animation-delay:0.1s;"></span>
-        <span class="ov-bar" style="height:22px;animation-delay:0.2s;background:#3B82F6;"></span>
-        <span class="ov-bar" style="height:13px;animation-delay:0.3s;"></span>
-        <span class="ov-bar" style="height:19px;animation-delay:0.4s;background:#3B82F6;"></span>
-        <span class="ov-bar" style="height:9px;animation-delay:0.5s;"></span>
-        <span class="ov-bar" style="height:17px;animation-delay:0.6s;"></span>
-        <span class="ov-bar" style="height:11px;animation-delay:0.7s;"></span>
+    <div style="display:flex;align-items:center;gap:3px;height:32px;">
+        <span class="ov-bar" style="height:8px;animation-delay:0s;"></span>
+        <span class="ov-bar" style="height:18px;animation-delay:0.1s;"></span>
+        <span class="ov-bar" style="height:26px;animation-delay:0.2s;"></span>
+        <span class="ov-bar" style="height:14px;animation-delay:0.3s;"></span>
+        <span class="ov-bar" style="height:22px;animation-delay:0.4s;"></span>
+        <span class="ov-bar" style="height:10px;animation-delay:0.5s;"></span>
+        <span class="ov-bar" style="height:20px;animation-delay:0.6s;"></span>
+        <span class="ov-bar" style="height:12px;animation-delay:0.7s;"></span>
+        <span class="ov-bar" style="height:24px;animation-delay:0.8s;"></span>
     </div>
-    <div style="font-size:11px;color:#1A3550;">
-        <a href="https://www.facebook.com/iamyourshahzaib" style="color:#2A5080;text-decoration:none;" target="_blank">Facebook</a>
-        &nbsp;·&nbsp;
-        <a href="https://wa.me/923363854956" style="color:#2A5080;text-decoration:none;" target="_blank">WhatsApp</a>
+    <div style="font-size:12px;display:flex;gap:12px;align-items:center;">
+        <a href="https://www.facebook.com/iamyourshahzaib" style="
+            color:#FFFFFF;text-decoration:none;
+            background:rgba(255,255,255,0.08);
+            border:1px solid rgba(255,255,255,0.15);
+            padding:5px 12px;border-radius:20px;
+            font-family:'Inter',sans-serif;font-weight:500;
+            transition:all 0.2s;
+        " target="_blank">Facebook</a>
+        <a href="https://wa.me/923363854956" style="
+            color:#FFFFFF;text-decoration:none;
+            background:rgba(34,197,94,0.15);
+            border:1px solid rgba(34,197,94,0.3);
+            padding:5px 12px;border-radius:20px;
+            font-family:'Inter',sans-serif;font-weight:500;
+        " target="_blank">WhatsApp</a>
     </div>
 </div>
 """
 
 VC_TIPS_HTML = """
 <div class="tip-box">
-    <b style="color:#0F9E7A;font-size:11px;">STUDIO TIPS</b><br>
+    <b style="color:#22C55E;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;">💡 Studio Tips</b><br>
     ▸ Reference audio 3–10 sec best quality deta hai<br>
     ▸ 20 sec se zyada slow ho jata hai<br>
     ▸ Transcript blank → auto-transcribe hoga<br>
@@ -562,9 +618,58 @@ VC_TIPS_HTML = """
 </div>
 """
 
+# ── Auto-download JS ──────────────────────────────────────────────────────
+AUTO_DL_JS = """
+<script>
+// Watch for download trigger textbox changes and auto-click download button
+(function() {
+    function triggerDownload(audioEl) {
+        if (!audioEl) return;
+        var src = audioEl.src;
+        if (!src || src === window._lastAutoDownload) return;
+        window._lastAutoDownload = src;
+        var a = document.createElement('a');
+        a.href = src;
+        a.download = src.split('/').pop().split('?')[0] || 'omnivoice.wav';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function setupWatcher(triggerId, audioContainerId) {
+        var triggerEl = document.getElementById(triggerId);
+        if (!triggerEl) return;
+        var textarea = triggerEl.querySelector('textarea');
+        if (!textarea) return;
+        var obs = new MutationObserver(function() {
+            var val = textarea.value.trim();
+            if (val && val.length > 3) {
+                // find the audio element in the audio container
+                var audioBox = document.getElementById(audioContainerId);
+                if (audioBox) {
+                    var audio = audioBox.querySelector('audio');
+                    triggerDownload(audio);
+                }
+            }
+        });
+        obs.observe(textarea, { attributes: true, childList: true, subtree: true, characterData: true });
+    }
+
+    // Run after page loads
+    window.addEventListener('load', function() {
+        setTimeout(function() {
+            setupWatcher('vc-dl-trigger', 'vc-audio-out');
+            setupWatcher('vd-dl-trigger', 'vd-audio-out');
+        }, 2000);
+    });
+})();
+</script>
+"""
+
 with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as demo:
 
     gr.HTML(HEADER_HTML)
+    gr.HTML(AUTO_DL_JS)
 
     with gr.Tabs():
 
@@ -605,12 +710,17 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         info="1.0 = normal · >1.0 = faster · <1.0 = slower",
                     )
                     vc_remove_sil, vc_sil_thresh, vc_min_sil_ms = silence_controls()
+                    vc_auto_dl = gr.Checkbox(
+                        label="⬇️ Auto Download — voice bante hi automatic download ho jaye (default ON)",
+                        value=True,
+                        elem_id="vc-auto-dl",
+                    )
                     vc_btn = gr.Button("✦  Generate Voice Clone", variant="primary", size="lg")
 
                 with gr.Column(scale=2):
                     gr.HTML(VC_TIPS_HTML)
                     vc_status = gr.HTML(
-                        value='<span style="color:#2E5080;">● Ready — Generate dabao</span>',
+                        value='<span style="color:#FF6B35;">● Ready — Generate dabao</span>',
                         elem_id="status-box",
                     )
                     vc_audio_out = gr.Audio(
@@ -619,14 +729,21 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         interactive=False,
                         show_download_button=True,
                         autoplay=True,
+                        elem_id="vc-audio-out",
+                    )
+                    # Hidden textbox — auto download trigger ke liye JS use karta hai isko
+                    vc_dl_trigger = gr.Textbox(
+                        value="",
+                        visible=False,
+                        elem_id="vc-dl-trigger",
                     )
                     gr.HTML(f'<div class="save-path">📁 &nbsp;{OUTPUT_FOLDER}</div>')
 
             vc_btn.click(
                 fn=generate_voice_clone,
                 inputs=[vc_text, vc_ref_audio, vc_ref_transcript, vc_steps,
-                        vc_speed, vc_remove_sil, vc_sil_thresh, vc_min_sil_ms],
-                outputs=[vc_audio_out, vc_status],
+                        vc_speed, vc_remove_sil, vc_sil_thresh, vc_min_sil_ms, vc_auto_dl],
+                outputs=[vc_audio_out, vc_dl_trigger, vc_status],
             )
 
         # ── TAB 2: Voice Design ───────────────────────────────────────────
@@ -672,12 +789,17 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         info="1.0 = normal · >1.0 = faster · <1.0 = slower",
                     )
                     vd_remove_sil, vd_sil_thresh, vd_min_sil_ms = silence_controls()
+                    vd_auto_dl = gr.Checkbox(
+                        label="⬇️ Auto Download — voice bante hi automatic download ho jaye (default ON)",
+                        value=True,
+                        elem_id="vd-auto-dl",
+                    )
                     vd_btn = gr.Button("✦  Generate Voice Design", variant="primary", size="lg")
 
                 with gr.Column(scale=2):
                     gr.HTML(VC_TIPS_HTML)
                     vd_status = gr.HTML(
-                        value='<span style="color:#2E5080;">● Ready — Generate dabao</span>',
+                        value='<span style="color:#FF6B35;">● Ready — Generate dabao</span>',
                         elem_id="status-box",
                     )
                     vd_audio_out = gr.Audio(
@@ -686,14 +808,20 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         interactive=False,
                         show_download_button=True,
                         autoplay=True,
+                        elem_id="vd-audio-out",
+                    )
+                    vd_dl_trigger = gr.Textbox(
+                        value="",
+                        visible=False,
+                        elem_id="vd-dl-trigger",
                     )
                     gr.HTML(f'<div class="save-path">📁 &nbsp;{OUTPUT_FOLDER}</div>')
 
             vd_btn.click(
                 fn=generate_voice_design,
                 inputs=[vd_text, vd_gender, vd_age, vd_emotion, vd_steps,
-                        vd_speed, vd_remove_sil, vd_sil_thresh, vd_min_sil_ms],
-                outputs=[vd_audio_out, vd_status],
+                        vd_speed, vd_remove_sil, vd_sil_thresh, vd_min_sil_ms, vd_auto_dl],
+                outputs=[vd_audio_out, vd_dl_trigger, vd_status],
             )
 
 
