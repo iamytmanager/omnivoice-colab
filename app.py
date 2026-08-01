@@ -22,8 +22,18 @@ os.makedirs(MODEL_CACHE_FOLDER, exist_ok=True)
 
 # ── Load OmniVoice model ───────────────────────────────────────────────────────
 print("🔄 Model load ho raha hai...")
+import torch
 from omnivoice import OmniVoice
-tts = OmniVoice(cache_dir=MODEL_CACHE_FOLDER)
+
+# Correct API: OmniVoice.from_pretrained() — OmniVoice() directly nahi hota
+# HuggingFace cache folder environment variable se set karo
+os.environ['HF_HOME'] = MODEL_CACHE_FOLDER
+
+tts = OmniVoice.from_pretrained(
+    "k2-fsa/OmniVoice",
+    device_map="cuda" if torch.cuda.is_available() else "cpu",
+    dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+)
 print("✅ Model ready!")
 
 
@@ -113,6 +123,7 @@ def generate_voice_clone(
     ref_audio,
     ref_transcript: str,
     steps: int,
+    speed_factor: float,
     remove_sil: bool,
     sil_thresh_db: float,
     min_sil_ms: int,
@@ -131,17 +142,25 @@ def generate_voice_clone(
         out_filename = f"omnivoice_{timestamp}.wav"
         out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        # OmniVoice API call
-        tts.clone(
+        # OmniVoice correct API: model.generate() with ref_audio for cloning
+        # num_step (not num_steps), ref_text (not reference_transcript)
+        generate_kwargs = dict(
             text=text,
-            reference_audio=ref_audio,
-            reference_transcript=ref_transcript if ref_transcript.strip() else None,
-            num_steps=steps,
-            output_path=out_path,
+            ref_audio=ref_audio,
+            num_step=steps,          # ← correct param name
+            speed=speed_factor,
         )
+        if ref_transcript and ref_transcript.strip():
+            generate_kwargs['ref_text'] = ref_transcript.strip()
+        # if ref_text omitted, Whisper auto-transcribes
 
-        if not os.path.exists(out_path):
-            raise gr.Error("❌ Audio generate nahi hui — model error!")
+        audio_list = tts.generate(**generate_kwargs)
+        # Returns list of np.ndarray at 24000 Hz
+        if not audio_list:
+            raise gr.Error("❌ Audio generate nahi hui — model ne kuch return nahi kiya!")
+        
+        audio_np = audio_list[0]
+        sf.write(out_path, audio_np, 24000)
 
         # Silence removal
         if remove_sil:
@@ -155,12 +174,15 @@ def generate_voice_clone(
         else:
             final_path = out_path
 
-        # ── KEY FIX: Read audio as numpy array and return directly ──────────
-        # Gradio ka audio player numpy array se instantly render karta hai
-        # File path dene pe kabhi kabhi 0:00 stuck ho jata tha (cache/MIME issue)
-        audio_data, sr = sf.read(final_path)
-        if audio_data.ndim > 1:
-            audio_data = audio_data.mean(axis=1)  # stereo → mono
+        # Audio already numpy array hai — seedha return karo (instant render)
+        if final_path != out_path:
+            # silence removal ne naya file banaya — us se read karo
+            audio_data, sr = sf.read(final_path)
+            if audio_data.ndim > 1:
+                audio_data = audio_data.mean(axis=1)
+        else:
+            audio_data = audio_np.astype(np.float32)
+            sr = 24000
 
         status_msg = f"✅ Done! Saved: {os.path.basename(final_path)}"
         yield (sr, audio_data.astype(np.float32)), status_msg
@@ -175,6 +197,7 @@ def generate_voice_design(
     age: str,
     emotion: str,
     steps: int,
+    speed_factor: float,
     remove_sil: bool,
     sil_thresh_db: float,
     min_sil_ms: int,
@@ -190,17 +213,23 @@ def generate_voice_design(
         out_filename = f"omnivoice_design_{timestamp}.wav"
         out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        tts.design(
-            text=text,
-            gender=gender.lower(),
-            age=age.lower(),
-            emotion=emotion.lower(),
-            num_steps=steps,
-            output_path=out_path,
-        )
+        # Voice design: instruct string banao attributes se
+        instruct_parts = [gender.lower(), age.lower()]
+        if emotion.lower() != "neutral":
+            instruct_parts.append(emotion.lower())
+        instruct_str = ", ".join(instruct_parts)
 
-        if not os.path.exists(out_path):
+        audio_list = tts.generate(
+            text=text,
+            instruct=instruct_str,
+            num_step=steps,          # ← correct param name
+            speed=speed_factor,
+        )
+        if not audio_list:
             raise gr.Error("❌ Audio generate nahi hui!")
+
+        audio_np = audio_list[0]
+        sf.write(out_path, audio_np, 24000)
 
         if remove_sil:
             status_msg = "✂️ Silence remove ho rahi hai..."
@@ -213,9 +242,13 @@ def generate_voice_design(
         else:
             final_path = out_path
 
-        audio_data, sr = sf.read(final_path)
-        if audio_data.ndim > 1:
-            audio_data = audio_data.mean(axis=1)
+        if final_path != out_path:
+            audio_data, sr = sf.read(final_path)
+            if audio_data.ndim > 1:
+                audio_data = audio_data.mean(axis=1)
+        else:
+            audio_data = audio_np.astype(np.float32)
+            sr = 24000
 
         status_msg = f"✅ Done! Saved: {os.path.basename(final_path)}"
         yield (sr, audio_data.astype(np.float32)), status_msg
@@ -559,9 +592,17 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         label="Generation steps",
                         minimum=10,
                         maximum=50,
-                        value=20,
-                        step=5,
-                        info="10 = fast · 50 = best quality",
+                        value=16,
+                        step=2,
+                        info="10–16 = fast · 32–50 = best quality",
+                    )
+                    vc_speed = gr.Slider(
+                        label="Speed",
+                        minimum=0.5,
+                        maximum=2.0,
+                        value=1.0,
+                        step=0.1,
+                        info="1.0 = normal · >1.0 = faster · <1.0 = slower",
                     )
                     vc_remove_sil, vc_sil_thresh, vc_min_sil_ms = silence_controls()
                     vc_btn = gr.Button("✦  Generate Voice Clone", variant="primary", size="lg")
@@ -584,7 +625,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
             vc_btn.click(
                 fn=generate_voice_clone,
                 inputs=[vc_text, vc_ref_audio, vc_ref_transcript, vc_steps,
-                        vc_remove_sil, vc_sil_thresh, vc_min_sil_ms],
+                        vc_speed, vc_remove_sil, vc_sil_thresh, vc_min_sil_ms],
                 outputs=[vc_audio_out, vc_status],
             )
 
@@ -618,9 +659,17 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         label="Generation steps",
                         minimum=10,
                         maximum=50,
-                        value=20,
-                        step=5,
-                        info="10 = fast · 50 = best quality",
+                        value=16,
+                        step=2,
+                        info="10–16 = fast · 32–50 = best quality",
+                    )
+                    vd_speed = gr.Slider(
+                        label="Speed",
+                        minimum=0.5,
+                        maximum=2.0,
+                        value=1.0,
+                        step=0.1,
+                        info="1.0 = normal · >1.0 = faster · <1.0 = slower",
                     )
                     vd_remove_sil, vd_sil_thresh, vd_min_sil_ms = silence_controls()
                     vd_btn = gr.Button("✦  Generate Voice Design", variant="primary", size="lg")
@@ -643,7 +692,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
             vd_btn.click(
                 fn=generate_voice_design,
                 inputs=[vd_text, vd_gender, vd_age, vd_emotion, vd_steps,
-                        vd_remove_sil, vd_sil_thresh, vd_min_sil_ms],
+                        vd_speed, vd_remove_sil, vd_sil_thresh, vd_min_sil_ms],
                 outputs=[vd_audio_out, vd_status],
             )
 
