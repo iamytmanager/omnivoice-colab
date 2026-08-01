@@ -131,8 +131,14 @@ def generate_voice_clone(
 ):
     if not text.strip():
         raise gr.Error("❌ Text to Speak khali hai!")
-    if ref_audio is None:
+
+    # ref_audio None ya empty string dono check karo
+    if ref_audio is None or (isinstance(ref_audio, str) and not ref_audio.strip()):
         raise gr.Error("❌ Reference audio upload karo!")
+
+    # filepath exist karta hai check karo
+    if isinstance(ref_audio, str) and not os.path.exists(ref_audio):
+        raise gr.Error("❌ Reference audio file mil nahi rahi — dobara upload karo!")
 
     # Pehle audio clear karo taake purani wali na dikhe
     status_msg = "⏳ Generating — purani audio clear ho rahi hai..."
@@ -146,9 +152,12 @@ def generate_voice_clone(
         status_msg = "🔄 Voice generate ho rahi hai — please wait..."
         yield None, "", status_msg
 
+        # ref_audio filepath string hona chahiye
+        ref_audio_path = ref_audio if isinstance(ref_audio, str) else ref_audio
+
         generate_kwargs = dict(
             text=text,
-            ref_audio=ref_audio,
+            ref_audio=ref_audio_path,
             num_step=steps,
             speed=speed_factor,
         )
@@ -732,6 +741,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                     vc_ref_audio = gr.Audio(
                         label="Reference audio  (3–20 sec recommended)",
                         type="filepath",
+                        format="wav",
                         sources=["upload", "microphone"],
                     )
                     vc_ref_transcript = gr.Textbox(
@@ -791,6 +801,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                         vc_speed, vc_remove_sil, vc_sil_thresh, vc_min_sil_ms, vc_auto_dl],
                 outputs=[vc_audio_out, vc_dl_trigger, vc_status],
                 concurrency_limit=1,
+                show_progress="full",
             )
 
         # ── TAB 2: Voice Design ───────────────────────────────────────────
@@ -879,4 +890,5 @@ if __name__ == "__main__":
         share=True,
         show_error=True,
         server_port=7860,
+        max_file_size="50mb",
     )
