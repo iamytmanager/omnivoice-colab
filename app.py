@@ -5,6 +5,8 @@ import time
 import numpy as np
 import soundfile as sf
 from pathlib import Path
+import threading
+import queue
 
 # ── Load config ────────────────────────────────────────────────────────────────
 CONFIG_PATH = '/content/omnivoice-colab/output_config.json'
@@ -132,72 +134,86 @@ def generate_voice_clone(
     if not text.strip():
         raise gr.Error("❌ Text to Speak khali hai!")
 
-    # ref_audio None ya empty string dono check karo
     if ref_audio is None or (isinstance(ref_audio, str) and not ref_audio.strip()):
         raise gr.Error("❌ Reference audio upload karo!")
 
-    # filepath exist karta hai check karo
     if isinstance(ref_audio, str) and not os.path.exists(ref_audio):
         raise gr.Error("❌ Reference audio file mil nahi rahi — dobara upload karo!")
 
-    # Pehle audio clear karo taake purani wali na dikhe
-    status_msg = "⏳ Generating — purani audio clear ho rahi hai..."
-    yield None, "", status_msg
+    yield None, "", "⏳ Shuruaat ho rahi hai..."
 
-    try:
-        timestamp = int(time.time())
-        out_filename = f"omnivoice_{timestamp}.wav"
-        out_path = os.path.join(OUTPUT_FOLDER, out_filename)
+    result_q = queue.Queue()
 
-        status_msg = "🔄 Voice generate ho rahi hai — please wait..."
-        yield None, "", status_msg
+    def _run():
+        try:
+            timestamp = int(time.time())
+            out_filename = f"omnivoice_{timestamp}.wav"
+            out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        # ref_audio filepath string hona chahiye
-        ref_audio_path = ref_audio if isinstance(ref_audio, str) else ref_audio
-
-        generate_kwargs = dict(
-            text=text,
-            ref_audio=ref_audio_path,
-            num_step=steps,
-            speed=speed_factor,
-        )
-        if ref_transcript and ref_transcript.strip():
-            generate_kwargs['ref_text'] = ref_transcript.strip()
-
-        audio_list = tts.generate(**generate_kwargs)
-        if not audio_list:
-            raise gr.Error("❌ Audio generate nahi hui — model ne kuch return nahi kiya!")
-        
-        audio_np = audio_list[0]
-        sf.write(out_path, audio_np, 24000)
-
-        if remove_sil:
-            status_msg = "✂️ Silence remove ho rahi hai..."
-            yield None, "", status_msg
-            final_path = remove_silence(
-                out_path,
-                silence_thresh_db=sil_thresh_db,
-                min_silence_ms=min_sil_ms,
+            ref_audio_path = ref_audio if isinstance(ref_audio, str) else ref_audio
+            generate_kwargs = dict(
+                text=text,
+                ref_audio=ref_audio_path,
+                num_step=steps,
+                speed=speed_factor,
             )
-        else:
-            final_path = out_path
+            if ref_transcript and ref_transcript.strip():
+                generate_kwargs['ref_text'] = ref_transcript.strip()
 
-        if final_path != out_path:
-            audio_data, sr = sf.read(final_path)
-            if audio_data.ndim > 1:
-                audio_data = audio_data.mean(axis=1)
-        else:
-            audio_data = audio_np.astype(np.float32)
-            sr = 24000
+            audio_list = tts.generate(**generate_kwargs)
+            if not audio_list:
+                result_q.put(("error", "Audio generate nahi hui — model ne kuch return nahi kiya!"))
+                return
 
-        saved_name = os.path.basename(final_path)
-        # auto_dl=True hone pe JS download trigger karein
-        dl_trigger = final_path if auto_dl else ""
-        status_msg = f"✅ Done! Saved: {saved_name}"
-        yield (sr, audio_data.astype(np.float32)), dl_trigger, status_msg
+            audio_np = audio_list[0]
+            sf.write(out_path, audio_np, 24000)
 
-    except Exception as e:
-        raise gr.Error(f"❌ Error: {str(e)}")
+            if remove_sil:
+                result_q.put(("status", "✂️ Silence remove ho rahi hai..."))
+                final_path = remove_silence(
+                    out_path,
+                    silence_thresh_db=sil_thresh_db,
+                    min_silence_ms=min_sil_ms,
+                )
+            else:
+                final_path = out_path
+
+            if final_path != out_path:
+                audio_data, sr = sf.read(final_path)
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.mean(axis=1)
+            else:
+                audio_data = audio_np.astype(np.float32)
+                sr = 24000
+
+            saved_name = os.path.basename(final_path)
+            dl_trigger = saved_name if auto_dl else ""
+            result_q.put(("done", (sr, audio_data.astype(np.float32)), dl_trigger, f"✅ Done! Saved: {saved_name}"))
+
+        except Exception as e:
+            result_q.put(("error", str(e)))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    # UI responsive rakhne ke liye — har 0.5 sec pe status update karo
+    dots = 0
+    while t.is_alive():
+        dots = (dots + 1) % 4
+        dot_str = "●" * (dots + 1) + "○" * (3 - dots)
+        yield None, "", f"🔄 Voice generate ho rahi hai {dot_str} — please wait..."
+        time.sleep(0.5)
+
+    # Thread khatam — result lo
+    while not result_q.empty():
+        item = result_q.get()
+        if item[0] == "status":
+            yield None, "", item[1]
+        elif item[0] == "done":
+            _, audio_out, dl_trigger, status_msg = item
+            yield audio_out, dl_trigger, status_msg
+        elif item[0] == "error":
+            raise gr.Error(f"❌ Error: {item[1]}")
 
 
 def generate_voice_design(
@@ -215,60 +231,78 @@ def generate_voice_design(
     if not text.strip():
         raise gr.Error("❌ Text to Speak khali hai!")
 
-    status_msg = "⏳ Generating — purani audio clear ho rahi hai..."
-    yield None, "", status_msg
+    yield None, "", "⏳ Shuruaat ho rahi hai..."
 
-    try:
-        timestamp = int(time.time())
-        out_filename = f"omnivoice_design_{timestamp}.wav"
-        out_path = os.path.join(OUTPUT_FOLDER, out_filename)
+    result_q = queue.Queue()
 
-        status_msg = "🔄 Voice design ho rahi hai — please wait..."
-        yield None, "", status_msg
+    def _run():
+        try:
+            timestamp = int(time.time())
+            out_filename = f"omnivoice_design_{timestamp}.wav"
+            out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        instruct_parts = [gender.lower(), age.lower()]
-        if emotion.lower() != "neutral":
-            instruct_parts.append(emotion.lower())
-        instruct_str = ", ".join(instruct_parts)
+            instruct_parts = [gender.lower(), age.lower()]
+            if emotion.lower() != "neutral":
+                instruct_parts.append(emotion.lower())
+            instruct_str = ", ".join(instruct_parts)
 
-        audio_list = tts.generate(
-            text=text,
-            instruct=instruct_str,
-            num_step=steps,
-            speed=speed_factor,
-        )
-        if not audio_list:
-            raise gr.Error("❌ Audio generate nahi hui!")
-
-        audio_np = audio_list[0]
-        sf.write(out_path, audio_np, 24000)
-
-        if remove_sil:
-            status_msg = "✂️ Silence remove ho rahi hai..."
-            yield None, "", status_msg
-            final_path = remove_silence(
-                out_path,
-                silence_thresh_db=sil_thresh_db,
-                min_silence_ms=min_sil_ms,
+            audio_list = tts.generate(
+                text=text,
+                instruct=instruct_str,
+                num_step=steps,
+                speed=speed_factor,
             )
-        else:
-            final_path = out_path
+            if not audio_list:
+                result_q.put(("error", "Audio generate nahi hui!"))
+                return
 
-        if final_path != out_path:
-            audio_data, sr = sf.read(final_path)
-            if audio_data.ndim > 1:
-                audio_data = audio_data.mean(axis=1)
-        else:
-            audio_data = audio_np.astype(np.float32)
-            sr = 24000
+            audio_np = audio_list[0]
+            sf.write(out_path, audio_np, 24000)
 
-        saved_name = os.path.basename(final_path)
-        dl_trigger = final_path if auto_dl else ""
-        status_msg = f"✅ Done! Saved: {saved_name}"
-        yield (sr, audio_data.astype(np.float32)), dl_trigger, status_msg
+            if remove_sil:
+                result_q.put(("status", "✂️ Silence remove ho rahi hai..."))
+                final_path = remove_silence(
+                    out_path,
+                    silence_thresh_db=sil_thresh_db,
+                    min_silence_ms=min_sil_ms,
+                )
+            else:
+                final_path = out_path
 
-    except Exception as e:
-        raise gr.Error(f"❌ Error: {str(e)}")
+            if final_path != out_path:
+                audio_data, sr = sf.read(final_path)
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.mean(axis=1)
+            else:
+                audio_data = audio_np.astype(np.float32)
+                sr = 24000
+
+            saved_name = os.path.basename(final_path)
+            dl_trigger = saved_name if auto_dl else ""
+            result_q.put(("done", (sr, audio_data.astype(np.float32)), dl_trigger, f"✅ Done! Saved: {saved_name}"))
+
+        except Exception as e:
+            result_q.put(("error", str(e)))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    dots = 0
+    while t.is_alive():
+        dots = (dots + 1) % 4
+        dot_str = "●" * (dots + 1) + "○" * (3 - dots)
+        yield None, "", f"🔄 Voice design ho rahi hai {dot_str} — please wait..."
+        time.sleep(0.5)
+
+    while not result_q.empty():
+        item = result_q.get()
+        if item[0] == "status":
+            yield None, "", item[1]
+        elif item[0] == "done":
+            _, audio_out, dl_trigger, status_msg = item
+            yield audio_out, dl_trigger, status_msg
+        elif item[0] == "error":
+            raise gr.Error(f"❌ Error: {item[1]}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -891,4 +925,5 @@ if __name__ == "__main__":
         show_error=True,
         server_port=7860,
         max_file_size="50mb",
+        allowed_paths=[OUTPUT_FOLDER, "/content"],
     )
