@@ -175,20 +175,15 @@ def generate_voice_clone(
                     silence_thresh_db=sil_thresh_db,
                     min_silence_ms=min_sil_ms,
                 )
+                # Raw file delete karo — sirf clean version rakhna hai
+                if final_path != out_path and os.path.exists(out_path):
+                    os.remove(out_path)
             else:
                 final_path = out_path
 
-            if final_path != out_path:
-                audio_data, sr = sf.read(final_path)
-                if audio_data.ndim > 1:
-                    audio_data = audio_data.mean(axis=1)
-            else:
-                audio_data = audio_np.astype(np.float32)
-                sr = 24000
-
             saved_name = os.path.basename(final_path)
             dl_trigger = saved_name if auto_dl else ""
-            result_q.put(("done", (sr, audio_data.astype(np.float32)), dl_trigger, f"✅ Done! Saved: {saved_name}"))
+            result_q.put(("done", final_path, dl_trigger, f"✅ Done! Saved: {saved_name}"))
 
         except Exception as e:
             result_q.put(("error", str(e)))
@@ -210,8 +205,8 @@ def generate_voice_clone(
         if item[0] == "status":
             yield None, "", item[1]
         elif item[0] == "done":
-            _, audio_out, dl_trigger, status_msg = item
-            yield audio_out, dl_trigger, status_msg
+            _, filepath, dl_trigger, status_msg = item
+            yield filepath, dl_trigger, status_msg
         elif item[0] == "error":
             raise gr.Error(f"❌ Error: {item[1]}")
 
@@ -266,20 +261,15 @@ def generate_voice_design(
                     silence_thresh_db=sil_thresh_db,
                     min_silence_ms=min_sil_ms,
                 )
+                # Raw file delete karo — sirf clean version rakhna hai
+                if final_path != out_path and os.path.exists(out_path):
+                    os.remove(out_path)
             else:
                 final_path = out_path
 
-            if final_path != out_path:
-                audio_data, sr = sf.read(final_path)
-                if audio_data.ndim > 1:
-                    audio_data = audio_data.mean(axis=1)
-            else:
-                audio_data = audio_np.astype(np.float32)
-                sr = 24000
-
             saved_name = os.path.basename(final_path)
             dl_trigger = saved_name if auto_dl else ""
-            result_q.put(("done", (sr, audio_data.astype(np.float32)), dl_trigger, f"✅ Done! Saved: {saved_name}"))
+            result_q.put(("done", final_path, dl_trigger, f"✅ Done! Saved: {saved_name}"))
 
         except Exception as e:
             result_q.put(("error", str(e)))
@@ -299,8 +289,8 @@ def generate_voice_design(
         if item[0] == "status":
             yield None, "", item[1]
         elif item[0] == "done":
-            _, audio_out, dl_trigger, status_msg = item
-            yield audio_out, dl_trigger, status_msg
+            _, filepath, dl_trigger, status_msg = item
+            yield filepath, dl_trigger, status_msg
         elif item[0] == "error":
             raise gr.Error(f"❌ Error: {item[1]}")
 
@@ -710,19 +700,41 @@ VC_TIPS_HTML = """
 # ── Auto-download JS ──────────────────────────────────────────────────────
 AUTO_DL_JS = """
 <script>
-// Watch for download trigger textbox changes and auto-click download button
+// Auto-download: audio src ready hote hi download trigger karo
 (function() {
-    function triggerDownload(audioEl) {
-        if (!audioEl) return;
-        var src = audioEl.src;
+    function triggerDownload(src, filename) {
         if (!src || src === window._lastAutoDownload) return;
         window._lastAutoDownload = src;
         var a = document.createElement('a');
         a.href = src;
-        a.download = src.split('/').pop().split('?')[0] || 'omnivoice.wav';
+        a.download = filename || 'omnivoice.wav';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    }
+
+    function waitForAudioAndDownload(audioContainerId, filename) {
+        // Audio element appear hone ka wait karo (max 10 sec)
+        var attempts = 0;
+        var interval = setInterval(function() {
+            attempts++;
+            var audioBox = document.getElementById(audioContainerId);
+            if (audioBox) {
+                var audio = audioBox.querySelector('audio');
+                if (audio && audio.src && audio.src.startsWith('http')) {
+                    clearInterval(interval);
+                    // Audio load hone ka thoda wait karo phir download
+                    audio.addEventListener('canplay', function() {
+                        triggerDownload(audio.src, filename);
+                    }, { once: true });
+                    // Fallback — agar canplay already fire ho chuka
+                    if (audio.readyState >= 3) {
+                        triggerDownload(audio.src, filename);
+                    }
+                }
+            }
+            if (attempts > 100) clearInterval(interval); // 10 sec timeout
+        }, 100);
     }
 
     function setupWatcher(triggerId, audioContainerId) {
@@ -730,27 +742,29 @@ AUTO_DL_JS = """
         if (!triggerEl) return;
         var textarea = triggerEl.querySelector('textarea');
         if (!textarea) return;
+        var lastVal = '';
         var obs = new MutationObserver(function() {
             var val = textarea.value.trim();
-            if (val && val.length > 3) {
-                // find the audio element in the audio container
-                var audioBox = document.getElementById(audioContainerId);
-                if (audioBox) {
-                    var audio = audioBox.querySelector('audio');
-                    triggerDownload(audio);
-                }
+            if (val && val.length > 3 && val !== lastVal) {
+                lastVal = val;
+                // val = filename (e.g. omnivoice_1234567890_cleaned.wav)
+                waitForAudioAndDownload(audioContainerId, val);
             }
         });
         obs.observe(textarea, { attributes: true, childList: true, subtree: true, characterData: true });
     }
 
-    // Run after page loads
-    window.addEventListener('load', function() {
-        setTimeout(function() {
-            setupWatcher('vc-dl-trigger', 'vc-audio-out');
-            setupWatcher('vd-dl-trigger', 'vd-audio-out');
-        }, 2000);
-    });
+    function init() {
+        setupWatcher('vc-dl-trigger', 'vc-audio-out');
+        setupWatcher('vd-dl-trigger', 'vd-audio-out');
+    }
+
+    // DOM ready hone ka wait
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() { setTimeout(init, 2000); });
+    } else {
+        setTimeout(init, 2000);
+    }
 })();
 </script>
 """
@@ -815,7 +829,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                     )
                     vc_audio_out = gr.Audio(
                         label="Generated audio",
-                        type="numpy",
+                        type="filepath",
                         interactive=False,
                         show_download_button=True,
                         autoplay=True,
@@ -896,7 +910,7 @@ with gr.Blocks(css=STUDIO_CSS, title="OmniVoice — Voice Cloning & Design") as 
                     )
                     vd_audio_out = gr.Audio(
                         label="Generated audio",
-                        type="numpy",
+                        type="filepath",
                         interactive=False,
                         show_download_button=True,
                         autoplay=True,
